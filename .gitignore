@@ -1,0 +1,8 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Streamlit local files (取得時刻メモはローカルのみ)
+last_fetched_jp.txt
