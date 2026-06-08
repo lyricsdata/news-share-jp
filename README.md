@@ -11,7 +11,10 @@ pip install -r requirements.txt
 streamlit run news_scraper_jp.py
 ```
 
+## 仕組み
+開かれるたびに Google ニュース日本語版(RSS)から最新を取得して表示する（ライブ取得方式）。
+データはCSV保存せず、30分キャッシュするだけなので、いつ開いても常に最新が見える。
+
 ## ファイル
 - `news_scraper_jp.py` … アプリ本体
-- `news_data_jp.csv` … 取得済みニュースデータ（初期表示用）
 - `requirements.txt` … 依存ライブラリ

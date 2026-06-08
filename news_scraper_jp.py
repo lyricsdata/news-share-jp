@@ -1,20 +1,19 @@
 # streamlit run news_scraper_jp.py
-# Requires: pip install feedparser
+# Requires: pip install streamlit pandas feedparser
 #
-# 日本語ニュース版。Google ニュース日本語版(RSS)をキーワード検索して収集する。
+# 日本語ニュース版（ライブ取得方式）。
+# 開かれるたびに Google ニュース日本語版(RSS)から最新を取得して表示する。
+# データはCSVに保存せず、@st.cache_data(ttl=30分)でキャッシュするだけ。
+# → 共有相手はいつ開いても「常に最新」を見られる。
 # 対象: キオクシア / 日本電波工業 / 日経平均
 
 import streamlit as st
 import pandas as pd
 import feedparser
 import re
-import os
 from urllib.parse import quote
 from datetime import datetime
 from email.utils import parsedate_to_datetime
-
-CSV_FILE = "news_data_jp.csv"
-LAST_FETCHED_FILE = "last_fetched_jp.txt"
 
 # 有料記事が多いソース（チェックボックスで除外できる）
 PAYWALLED_SOURCES = {
@@ -38,6 +37,8 @@ TIME_RANGE_OPTIONS = {
     "すべて":    "",
 }
 
+CACHE_TTL_SECONDS = 1800  # 30分。これより短い間隔ではRSSを取りに行かない
+
 
 def strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text or "").strip()
@@ -50,73 +51,52 @@ def parse_date(date_str: str) -> str:
         return date_str or ""
 
 
-def fetch_target(label: str, query: str, time_range: str = "qdr:d") -> list[dict]:
-    import time as _time
+def fetch_target(label: str, query: str, time_range: str) -> list[dict]:
     tbs = f"&tbs={time_range}" if time_range else ""
     # hl=ja&gl=JP&ceid=JP:ja で日本語・日本のニュースに限定
     url = (
         f"https://news.google.com/rss/search"
-        f"?q={quote(query)}{tbs}&hl=ja&gl=JP&ceid=JP:ja&_={int(_time.time())}"
+        f"?q={quote(query)}{tbs}&hl=ja&gl=JP&ceid=JP:ja"
     )
-    feed = feedparser.parse(
-        url,
-        request_headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
-    )
-    fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    feed = feedparser.parse(url)
     articles = []
     for entry in feed.entries:
-        source = entry.get("source", {}).get("title", "")
         articles.append({
-            "target":     label,
-            "title":      strip_html(entry.get("title", "")),
-            "url":        entry.get("link", ""),
-            "source":     source,
-            "published":  parse_date(entry.get("published", "")),
-            "summary":    strip_html(entry.get("summary", "")),
-            "fetched_at": fetched_at,
+            "target":    label,
+            "title":     strip_html(entry.get("title", "")),
+            "url":       entry.get("link", ""),
+            "source":    entry.get("source", {}).get("title", ""),
+            "published": parse_date(entry.get("published", "")),
+            "summary":   strip_html(entry.get("summary", "")),
         })
     return articles
 
 
-def load_csv() -> pd.DataFrame:
-    if os.path.exists(CSV_FILE):
-        return pd.read_csv(CSV_FILE)
-    return pd.DataFrame()
-
-
-def save_to_csv(new_articles: list[dict]) -> pd.DataFrame:
-    new_df = pd.DataFrame(new_articles)
-    if os.path.exists(CSV_FILE):
-        existing = pd.read_csv(CSV_FILE)
-        combined = pd.concat([existing, new_df], ignore_index=True)
-    else:
-        combined = new_df
-    combined = combined.drop_duplicates(subset=["url"], keep="last")
-    combined.to_csv(CSV_FILE, index=False)
-    return combined
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner="最新ニュースを取得中…")
+def fetch_all(time_range: str) -> tuple[pd.DataFrame, str]:
+    """全対象をライブ取得してDataFrameと取得時刻を返す（30分キャッシュ）。"""
+    rows = []
+    for label, query in TARGETS.items():
+        rows.extend(fetch_target(label, query, time_range))
+    df = pd.DataFrame(rows).drop_duplicates(subset=["url"], keep="last")
+    fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    return df, fetched_at
 
 
 # ── Page config ────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="日本語ニュース収集", page_icon="📰", layout="wide")
-st.title("📰 日本語ニュース収集")
-st.caption("Google ニュース日本語版(RSS)から、選択した銘柄のニュースを集めます")
+st.set_page_config(page_title="日本語ニュース", page_icon="📰", layout="wide")
+st.title("📰 日本語ニュース")
+st.caption("キオクシア・日本電波工業・日経平均の最新ニュース（Google ニュース日本語版）")
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("⚙️ 設定")
-    st.write("**対象**")
 
-    selected_targets = []
-    for label in TARGETS:
-        if st.checkbox(label, value=True, key=f"tgt_{label}"):
-            selected_targets.append(label)
-
-    st.divider()
     st.write("**期間**")
     selected_range_label = st.selectbox(
         "期間",
         list(TIME_RANGE_OPTIONS.keys()),
-        index=0,
+        index=1,  # デフォルト「過去3日」
         label_visibility="collapsed",
     )
     selected_range = TIME_RANGE_OPTIONS[selected_range_label]
@@ -124,58 +104,26 @@ with st.sidebar:
     exclude_paywall = st.checkbox("有料記事ソースを除外", value=True)
 
     st.divider()
-    fetch_clicked = st.button("🔄 ニュース取得", use_container_width=True, type="primary")
+    if st.button("🔄 最新に更新", use_container_width=True, type="primary"):
+        st.cache_data.clear()
+        st.rerun()
+    st.caption(f"※ 自動で最新を表示します（{CACHE_TTL_SECONDS // 60}分ごとに更新）")
 
-    df_sidebar = load_csv()
-    if not df_sidebar.empty:
-        csv_bytes = df_sidebar.to_csv(index=False).encode("utf-8-sig")
-        st.download_button(
-            "⬇️ CSVダウンロード", csv_bytes, "news_data_jp.csv", "text/csv",
-            use_container_width=True,
-        )
-        if st.button("🗑️ データを全消去", use_container_width=True):
-            os.remove(CSV_FILE)
-            st.rerun()
+# ── ライブ取得 ───────────────────────────────────────────────────────────────────
+df, fetched_at = fetch_all(selected_range)
 
-# ── Fetch logic ────────────────────────────────────────────────────────────────
-if fetch_clicked:
-    if not selected_targets:
-        st.error("対象を1つ以上選んでください。")
-        st.stop()
-
-    all_articles = []
-    progress_bar = st.progress(0, text="開始中…")
-
-    for i, label in enumerate(selected_targets):
-        progress_bar.progress((i + 1) / len(selected_targets), text=f"取得中: {label}…")
-        articles = fetch_target(label, TARGETS[label], selected_range)
-        if exclude_paywall:
-            articles = [a for a in articles if a["source"] not in PAYWALLED_SOURCES]
-        all_articles.extend(articles)
-
-    df_saved = save_to_csv(all_articles)
-    progress_bar.empty()
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    with open(LAST_FETCHED_FILE, "w", encoding="utf-8") as f:
-        f.write(now_str)
-    st.success(
-        f"✅ {len(all_articles)}件取得 → 重複除外後 合計{len(df_saved)}件"
-    )
-    st.rerun()
-
-# ── Main display ───────────────────────────────────────────────────────────────
-df = load_csv()
+if exclude_paywall and not df.empty:
+    df = df[~df["source"].isin(PAYWALLED_SOURCES)]
 
 if df.empty:
-    st.info("📭 まだデータがありません。対象を選んで **ニュース取得** を押してください。")
+    st.info("📭 該当するニュースが見つかりませんでした。期間を広げてみてください。")
     st.stop()
 
 # Stats
 c1, c2, c3 = st.columns(3)
 c1.metric("📰 記事数", len(df))
 c2.metric("🎯 対象数", df["target"].nunique())
-_lf = open(LAST_FETCHED_FILE, encoding="utf-8").read().strip() if os.path.exists(LAST_FETCHED_FILE) else "—"
-c3.metric("🕐 最終取得", _lf)
+c3.metric("🕐 取得時刻", fetched_at)
 
 st.divider()
 
@@ -185,7 +133,7 @@ with f1:
     tgt_opts = ["すべての対象"] + [t for t in TARGETS if t in df["target"].values]
     filter_tgt = st.selectbox("対象", tgt_opts, label_visibility="collapsed")
 with f2:
-    sources = sorted(df["source"].dropna().unique().tolist()) if "source" in df.columns else []
+    sources = sorted(df["source"].dropna().unique().tolist())
     src_opts = ["すべてのソース"] + sources
     filter_src = st.selectbox("ソース", src_opts, label_visibility="collapsed")
 with f3:
@@ -203,8 +151,7 @@ if search_q.strip():
     ]
 
 # Sort newest first
-if "published" in df_view.columns:
-    df_view = df_view.sort_values("published", ascending=False)
+df_view = df_view.sort_values("published", ascending=False)
 
 st.caption(f"{len(df)}件中 {len(df_view)}件を表示")
 
