@@ -27,13 +27,13 @@ PAYWALLED_SOURCES = {
 TARGETS = {
     "キオクシア":     "キオクシア",
     "日本電波工業":   "日本電波工業",
-    "日経平均":       "日経平均株価",
+    "日経平均":       '"日経平均株価"',
 }
 
 TIME_RANGE_OPTIONS = {
-    "過去24時間": "qdr:d",
-    "過去3日":   "qdr:3d",
-    "過去1週間": "qdr:w",
+    "過去24時間": "when:1d",
+    "過去3日":   "when:3d",
+    "過去1週間": "when:7d",
     "すべて":    "",
 }
 
@@ -52,11 +52,12 @@ def parse_date(date_str: str) -> str:
 
 
 def fetch_target(label: str, query: str, time_range: str) -> list[dict]:
-    tbs = f"&tbs={time_range}" if time_range else ""
+    # 期間は tbs ではなくクエリ内の when: 演算子で指定する（RSSではこちらが効く）
+    full_query = f"{query} {time_range}".strip() if time_range else query
     # hl=ja&gl=JP&ceid=JP:ja で日本語・日本のニュースに限定
     url = (
         f"https://news.google.com/rss/search"
-        f"?q={quote(query)}{tbs}&hl=ja&gl=JP&ceid=JP:ja"
+        f"?q={quote(full_query)}&hl=ja&gl=JP&ceid=JP:ja"
     )
     feed = feedparser.parse(url)
     articles = []
@@ -103,6 +104,13 @@ with st.sidebar:
 
     exclude_paywall = st.checkbox("有料記事ソースを除外", value=True)
 
+    st.write("**1対象あたりの最大件数**")
+    max_per_target = st.slider(
+        "1対象あたりの最大件数",
+        min_value=3, max_value=30, value=10,
+        label_visibility="collapsed",
+    )
+
     st.divider()
     if st.button("🔄 最新に更新", use_container_width=True, type="primary"):
         st.cache_data.clear()
@@ -114,6 +122,14 @@ df, fetched_at = fetch_all(selected_range)
 
 if exclude_paywall and not df.empty:
     df = df[~df["source"].isin(PAYWALLED_SOURCES)]
+
+# 対象ごとに新しい順で最大N件まで絞る（ここで df 本体を間引くので metric も連動する）
+if not df.empty:
+    df = (
+        df.sort_values("published", ascending=False)
+          .groupby("target", group_keys=False)
+          .head(max_per_target)
+    )
 
 if df.empty:
     st.info("📭 該当するニュースが見つかりませんでした。期間を広げてみてください。")
@@ -133,9 +149,13 @@ with f1:
     tgt_opts = ["すべての対象"] + [t for t in TARGETS if t in df["target"].values]
     filter_tgt = st.selectbox("対象", tgt_opts, label_visibility="collapsed")
 with f2:
-    sources = sorted(df["source"].dropna().unique().tolist())
-    src_opts = ["すべてのソース"] + sources
-    filter_src = st.selectbox("ソース", src_opts, label_visibility="collapsed")
+    sources = sorted(s for s in df["source"].dropna().unique().tolist() if s)
+    filter_srcs = st.multiselect(
+        "ソース",
+        sources,
+        placeholder="📡 ソースで絞り込み（未選択=すべて）",
+        label_visibility="collapsed",
+    )
 with f3:
     search_q = st.text_input("検索", placeholder="🔍 タイトルを検索…", label_visibility="collapsed")
 
@@ -143,17 +163,17 @@ with f3:
 df_view = df.copy()
 if filter_tgt != "すべての対象":
     df_view = df_view[df_view["target"] == filter_tgt]
-if filter_src != "すべてのソース":
-    df_view = df_view[df_view["source"] == filter_src]
+if filter_srcs:
+    df_view = df_view[df_view["source"].isin(filter_srcs)]
 if search_q.strip():
     df_view = df_view[
         df_view["title"].str.lower().str.contains(search_q.strip().lower(), na=False)
     ]
 
-# Sort newest first
+# Sort newest first（件数キャップは取得直後に df 側で適用済み）
 df_view = df_view.sort_values("published", ascending=False)
 
-st.caption(f"{len(df)}件中 {len(df_view)}件を表示")
+st.caption(f"{len(df)}件中 {len(df_view)}件を表示（対象ごと最大{max_per_target}件）")
 
 # Article cards
 for _, row in df_view.iterrows():
