@@ -23,6 +23,29 @@ PAYWALLED_SOURCES = {
     "Financial Times", "東洋経済オンライン",
 }
 
+# 大手・人気メディアの判定キーワード（部分一致）。
+# Google ニュースのソース名は表記ゆれが多いので完全一致でなく部分一致で拾う。
+# 例: "日経" は 日経CNBC online / 日経クロステック にも一致、"Yahoo!" は両Yahoo系に一致。
+MAJOR_SOURCE_KEYWORDS = {
+    # 全国紙・新聞社
+    "日本経済新聞", "日経", "朝日新聞", "読売新聞", "毎日新聞", "産経", "東京新聞",
+    "日刊工業新聞",
+    # テレビ・通信社
+    "NHK", "TBS", "テレ朝", "日テレ", "テレ東", "FNN",
+    "時事", "共同通信", "ロイター", "Reuters", "Bloomberg", "ブルームバーグ",
+    # 経済・ビジネス誌
+    "東洋経済", "ダイヤモンド", "四季報",
+    # 大手アグリゲータ・株情報
+    "Yahoo!", "株探", "ライブドアニュース", "みんかぶ", "トウシル",
+    "ITmedia", "nippon.com",
+}
+
+
+def is_major_source(source: str) -> bool:
+    """ソース名が大手・人気メディアのキーワードを含むか（部分一致・大小文字無視）。"""
+    s = (source or "").lower()
+    return any(k.lower() in s for k in MAJOR_SOURCE_KEYWORDS)
+
 # 表示名 → Google ニュース検索クエリ
 TARGETS = {
     "キオクシア":     "キオクシア",
@@ -102,6 +125,11 @@ with st.sidebar:
     )
     selected_range = TIME_RANGE_OPTIONS[selected_range_label]
 
+    major_only = st.checkbox(
+        "大手・人気メディアのみ", value=True,
+        help="全国紙・テレビ・通信社・主要経済誌・Yahoo!/株探などに限定。"
+             "（日経は『大手』に含まれますが、『有料記事ソースを除外』をオンにすると外れます）",
+    )
     exclude_paywall = st.checkbox("有料記事ソースを除外", value=True)
 
     st.write("**1対象あたりの最大件数**")
@@ -119,6 +147,9 @@ with st.sidebar:
 
 # ── ライブ取得 ───────────────────────────────────────────────────────────────────
 df, fetched_at = fetch_all(selected_range)
+
+if major_only and not df.empty:
+    df = df[df["source"].apply(is_major_source)]
 
 if exclude_paywall and not df.empty:
     df = df[~df["source"].isin(PAYWALLED_SOURCES)]
