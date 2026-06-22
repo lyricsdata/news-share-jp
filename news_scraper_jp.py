@@ -13,7 +13,12 @@ import feedparser
 import re
 from urllib.parse import quote
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from email.utils import parsedate_to_datetime
+
+# 取得時刻はサーバーのローカル時刻（Streamlit Cloud は UTC）ではなく
+# 日本時間で表示する。
+JST = ZoneInfo("Asia/Tokyo")
 
 # 有料記事が多いソース（チェックボックスで除外できる）
 PAYWALLED_SOURCES = {
@@ -103,7 +108,7 @@ def fetch_all(time_range: str) -> tuple[pd.DataFrame, str]:
     for label, query in TARGETS.items():
         rows.extend(fetch_target(label, query, time_range))
     df = pd.DataFrame(rows).drop_duplicates(subset=["url"], keep="last")
-    fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    fetched_at = datetime.now(JST).strftime("%Y-%m-%d %H:%M")
     return df, fetched_at
 
 
@@ -170,7 +175,7 @@ if df.empty:
 c1, c2, c3 = st.columns(3)
 c1.metric("📰 記事数", len(df))
 c2.metric("🎯 対象数", df["target"].nunique())
-c3.metric("🕐 取得時刻", fetched_at)
+c3.metric("🕐 取得時刻 (JST)", fetched_at)
 
 st.divider()
 
