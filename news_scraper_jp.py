@@ -77,7 +77,9 @@ def strip_html(text: str) -> str:
 
 def parse_date(date_str: str) -> str:
     try:
-        return parsedate_to_datetime(date_str).strftime("%Y-%m-%d %H:%M")
+        # RSSのpubDateはソースによりタイムゾーンがまちまち（EST等）なので、
+        # 表示前に必ずJSTへ変換する。
+        return parsedate_to_datetime(date_str).astimezone(JST).strftime("%Y-%m-%d %H:%M")
     except Exception:
         return date_str or ""
 
@@ -172,6 +174,14 @@ html, body, [class*="css"] { font-family: 'Noto Sans JP', sans-serif; }
 [data-testid="stMetricValue"] {
     font-family: 'IBM Plex Mono', 'Noto Sans JP', monospace;
     color: var(--accent) !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: unset !important;
+    word-break: break-word;
+    line-height: 1.3;
+}
+@media (max-width: 480px) {
+    [data-testid="stMetricValue"] { font-size: 1.4rem !important; }
 }
 
 /* Article card */
