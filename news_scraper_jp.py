@@ -176,7 +176,8 @@ def fetch_all(time_range: str, targets: dict[str, str]) -> tuple[pd.DataFrame, s
     for label, query in targets.items():
         rows.extend(fetch_target(label, query, time_range))
     df = pd.DataFrame(rows).drop_duplicates(subset=["url"], keep="last")
-    fetched_at = datetime.now(JST).strftime("%Y-%m-%d %H:%M")
+    # 日付/時刻の間で明示的に改行し、狭い画面で変な位置で折り返されるのを防ぐ
+    fetched_at = datetime.now(JST).strftime("%Y-%m-%d\n%H:%M")
     return df, fetched_at
 
 
@@ -238,9 +239,11 @@ html, body, [class*="css"] { font-family: 'Noto Sans JP', sans-serif; }
     font-family: 'IBM Plex Mono', 'Noto Sans JP', monospace;
     color: var(--accent) !important;
 }
-/* Streamlitは値を内側のdivで nowrap+ellipsis 表示するため、そちらも上書きする必要がある */
+/* Streamlitは値を内側のdivで nowrap+ellipsis 表示するため、そちらも上書きする必要がある。
+   pre-lineは通常の折り返しをしつつ、値中の明示的な改行(\n)も尊重する
+   （取得時刻を「日付\n時刻」の2段で常に揃えて表示するため）。 */
 [data-testid="stMetricValue"], [data-testid="stMetricValue"] div {
-    white-space: normal !important;
+    white-space: pre-line !important;
     overflow: visible !important;
     text-overflow: unset !important;
     word-break: break-word;
@@ -249,6 +252,13 @@ html, body, [class*="css"] { font-family: 'Noto Sans JP', sans-serif; }
 }
 @media (max-width: 480px) {
     [data-testid="stMetricValue"] { font-size: 1.4rem !important; }
+}
+/* 取得時刻カードは「記事数」「対象数」より文字数が多いため、
+   ノートPCの中間幅（列が3等分でまだ縦積みにならない帯）でも
+   「日付/時刻」の2段に収まるよう、この値だけフォントを小さめにする */
+[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:nth-of-type(3) [data-testid="stMetricValue"],
+[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:nth-of-type(3) [data-testid="stMetricValue"] div {
+    font-size: 1.05rem !important;
 }
 
 /* Stock quote row (phase 2) */
