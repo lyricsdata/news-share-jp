@@ -255,9 +255,11 @@ html, body, [class*="css"] { font-family: 'Noto Sans JP', sans-serif; }
 }
 /* 取得時刻カードは「記事数」「対象数」より文字数が多いため、
    ノートPCの中間幅（列が3等分でまだ縦積みにならない帯）でも
-   「日付/時刻」の2段に収まるよう、この値だけフォントを小さめにする */
-[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:nth-of-type(3) [data-testid="stMetricValue"],
-[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:nth-of-type(3) [data-testid="stMetricValue"] div {
+   「日付/時刻」の2段に収まるよう、この値だけフォントを小さめにする。
+   .st-key-stats-row で明示的にスコープしないと、他の3カラム行にも
+   :nth-of-type(3) が一致してしまうため、統計カード行に限定する。 */
+.st-key-stats-row [data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:nth-of-type(3) [data-testid="stMetricValue"],
+.st-key-stats-row [data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:nth-of-type(3) [data-testid="stMetricValue"] div {
     font-size: 1.05rem !important;
 }
 
@@ -409,10 +411,11 @@ else:
 st.session_state["seen_urls"] = current_urls
 
 # Stats
-c1, c2, c3 = st.columns(3)
-c1.metric("記事数", len(df))
-c2.metric("対象数", df["target"].nunique())
-c3.metric("取得時刻 (JST)", fetched_at)
+with st.container(key="stats-row"):
+    c1, c2, c3 = st.columns(3)
+    c1.metric("記事数", len(df))
+    c2.metric("対象数", df["target"].nunique())
+    c3.metric("取得時刻 (JST)", fetched_at)
 
 # ── 株価スニペット（表示中の対象のうちtickerを持つものだけ） ──────────────────────
 stock_targets = [

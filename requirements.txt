@@ -1,4 +1,4 @@
-streamlit
+streamlit==1.52.1
 pandas
 feedparser
 yfinance==0.2.66
