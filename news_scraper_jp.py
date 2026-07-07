@@ -15,6 +15,7 @@ import feedparser
 import yfinance as yf
 import re
 import html
+import time
 from urllib.parse import quote
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -133,31 +134,38 @@ def fetch_target(label: str, query: str, time_range: str) -> list[dict]:
 STOCK_QUOTE_TTL_SECONDS = 900  # 15分。ニュースの30分キャッシュとは独立
 
 
+def _fetch_one_quote(ticker: str) -> dict[str, float] | None:
+    info = yf.Ticker(ticker).fast_info
+    price = info.last_price
+    prev_close = info.previous_close
+    if price is None or prev_close is None:
+        return None
+    change = price - prev_close
+    change_pct = (change / prev_close * 100) if prev_close else 0.0
+    return {"price": price, "prev_close": prev_close, "change": change, "change_pct": change_pct}
+
+
 @st.cache_data(ttl=STOCK_QUOTE_TTL_SECONDS, show_spinner=False)
 def fetch_stock_quotes(tickers: tuple[str, ...]) -> dict[str, dict[str, float]]:
     """ティッカーごとに現在値・前日比を取得する（15分キャッシュ）。
 
     ネットワーク障害・上場廃止・レート制限などで個別ティッカーの取得に失敗しても、
     その銘柄を結果から除くだけでアプリ全体は止めない。
+    プロセス起動直後の最初の1回はYahoo側のセッション確立が失敗しやすいため、
+    銘柄ごとに1回だけ再試行する。
     """
     quotes: dict[str, dict[str, float]] = {}
     for ticker in tickers:
-        try:
-            info = yf.Ticker(ticker).fast_info
-            price = info.last_price
-            prev_close = info.previous_close
-            if price is None or prev_close is None:
-                continue
-            change = price - prev_close
-            change_pct = (change / prev_close * 100) if prev_close else 0.0
-            quotes[ticker] = {
-                "price": price,
-                "prev_close": prev_close,
-                "change": change,
-                "change_pct": change_pct,
-            }
-        except Exception:
-            continue
+        for attempt in range(2):
+            try:
+                quote = _fetch_one_quote(ticker)
+            except Exception:
+                quote = None
+            if quote is not None:
+                quotes[ticker] = quote
+                break
+            if attempt == 0:
+                time.sleep(0.5)
     return quotes
 
 
