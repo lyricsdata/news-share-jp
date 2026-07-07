@@ -3,7 +3,7 @@
 キオクシア・日本電波工業・日経平均のニュースを Google ニュース日本語版(RSS)から集めて表示する Streamlit アプリ。
 
 ## 公開URL
-（Streamlit Community Cloud にデプロイ後、ここにURLを貼る）
+非公開（Privateリポジトリのため、実URLはここには記載しない。自分用に別途メモしておくこと）
 
 ## ローカル実行
 ```bash
